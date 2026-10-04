@@ -1,0 +1,23 @@
+TW-BINS-001 rev P01 - priced build sheet - 4 October 2026
+RATE BASIS,"Indicative UK supply rates, 4 Oct 2026, C24 treated softwood from a merchant, delivered. Excludes overheads, profit, prelims, plant hire, waste removal, design fees and the temporary works check."
+
+Section,Description,Quantity,Unit,Rate GBP,Amount GBP,Note
+A. TIMBER,"Post 75 x 225 C24 treated, 2.40 m long",7,no,27.50,192.50,"6 required + 1 waste. 4 to the front run, 2 at the return ends"
+A. TIMBER,"Rail 100 x 75 C24 treated, laid flat",27.7,m,8.20,227.14,25.2 m measured (3 levels: 18.0 m front + 7.2 m returns) + 10% waste
+A. TIMBER,Gate frame 75 x 50 C24 treated,9.0,m,4.20,37.80,"2 stiles 2.10, 2 rails 1.20, 1 diagonal brace 2.40 = 9.0 m"
+B. BOARDING,18 mm OSB/3 sheet 2440 x 1220,9,sheet,29.50,265.50,5 front run + 2 returns + 1 gate leaf + 1 waste
+C. FIXINGS,"Screw 5.0 x 100, rail to post",200,no,0.23,46.00,About 60 to the rails at 4 per connection + 112 boards to rails
+C. FIXINGS,"Screw 4.0 x 50, board to rail and gate",100,no,0.10,9.50,Boards to rails and the gate frame
+C. FIXINGS,"Tee hinge, galvanised, 300 mm",1,pair,29.00,29.00,"Gate leaf, hung on post P2"
+C. FIXINGS,"Sliding bolt, galvanised, 150 mm",1,no,13.50,13.50,"Gate leaf, keep on post P3"
+D. GROUNDWORKS,"Break out and excavate 400 mm dia x 900 mm deep, through tarmac",6,hole,48.00,288.00,Hand dig and break out. CAT scan and service check assumed done separately
+D. GROUNDWORKS,"Mass concrete C20/25, placed full depth",0.71,m3,148.00,105.08,0.113 m3 per hole x 6 = 0.68 m3 + 5%
+D. GROUNDWORKS,Tarmac reinstatement around each post,6,hole,42.00,252.00,About 0.4 m2 per hole. CONFIRM the surface may be broken - open input
+E. SUNDRIES,"Sealant, washers, cutting, general consumables",1,item,65.00,65.00,Allowance
+F. LABOUR,"Carpenter, erecting",3.0,day,245.00,735.00,"2 carpenters x 1.5 days: set out, posts, rails, facing, gate"
+F. LABOUR,General labourer,1.0,day,185.00,185.00,Assisting and clearing
+
+,Materials and groundworks,,,,1531.02,
+,Labour,,,,920.00,
+,"TOTAL, excluding overheads, profit and prelims",,,,2451.02,
+,Rate per metre of hoarding (8.40 m),,,,291.79,

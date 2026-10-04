@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Bin Bay Hoarding - 3D walkthrough (communication model)</title>
+<style>
+  html,body{margin:0;padding:0;height:100%;background:#070a0f;color:#e8eef7;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    touch-action:none;overscroll-behavior:none;-webkit-user-select:none;user-select:none;
+    -webkit-tap-highlight-color:transparent;overflow:hidden}
+  #wrap{position:fixed;inset:0;display:flex;flex-direction:column}
+  header{flex:0 0 auto;display:flex;flex-wrap:wrap;gap:6px;align-items:center;
+    padding:8px 10px;background:linear-gradient(#141a24,#0d1219);border-bottom:1px solid #22303f}
+  h1{font-size:13px;margin:0 10px 0 0;font-weight:600;letter-spacing:.2px;flex:0 0 auto}
+  button{font:inherit;font-size:12px;padding:7px 10px;border-radius:8px;border:1px solid #33445c;
+    background:#1b2532;color:#dbe7f5;cursor:pointer;-webkit-appearance:none;appearance:none}
+  button.on{background:#2f6fb0;border-color:#4d8fd6;color:#fff}
+  #badge{flex:1 1 100%;font-size:10.5px;line-height:1.35;color:#ffd23f;background:#2a1d00;
+    border:1px solid #6b4d00;border-radius:6px;padding:5px 8px}
+  #badge b{color:#fff}
+  #stage{position:relative;flex:1 1 auto;min-height:0}
+  canvas{display:block;width:100%;height:100%;touch-action:none}
+  #stick{position:absolute;left:18px;bottom:18px;width:132px;height:132px;border-radius:50%;
+    background:rgba(255,255,255,.08);border:2px solid rgba(255,255,255,.28);
+    touch-action:none;display:none;z-index:5}
+  #knob{position:absolute;left:50%;top:50%;width:56px;height:56px;margin:-28px 0 0 -28px;
+    border-radius:50%;background:rgba(255,210,63,.85);border:2px solid rgba(255,255,255,.5);
+    pointer-events:none}
+  #errbox{position:absolute;left:8px;right:8px;top:8px;z-index:9;display:none;
+    background:#5a0d0d;border:1px solid #ff6b6b;color:#ffe0e0;font-size:12px;
+    padding:8px;border-radius:8px;white-space:pre-wrap;max-height:45%;overflow:auto}
+  #hint{position:absolute;left:10px;right:10px;bottom:6px;text-align:center;font-size:11px;
+    color:#9fb3cc;pointer-events:none;z-index:4}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <header>
+    <h1>Bin Bay Hoarding &mdash; 3D</h1>
+    <button id="modeBtn" type="button">Mode: Orbit</button>
+    <button id="frameBtn" type="button">Frame only</button>
+    <button id="labelsBtn" type="button">Labels</button>
+    <button id="figureBtn" type="button">Figure</button>
+    <button id="resetBtn" type="button">Reset</button>
+    <div id="badge"><b>COMMUNICATION MODEL &mdash; NOT A DESIGN &mdash; NOT FOR CONSTRUCTION.</b>
+      The temporary works designer owns the design and its independent check. Nothing is erected
+      or loaded without a permit to load (BS 5975).</div>
+  </header>
+  <div id="stage">
+    <div id="errbox"></div>
+    <div id="stick"><div id="knob"></div></div>
+    <div id="hint"></div>
+  </div>
+</div>
+<script src="three.min.js"></script>
+<script>
+(function(){
+'use strict';
+
+/* ---------------------------------------------------------------- errors */
+var errbox = document.getElementById('errbox');
+function showErr(m){ errbox.style.display='block'; errbox.textContent += m + "\n"; }
+window.addEventListener('error', function(e){ showErr('ERROR: ' + (e.message || e.error)); });
+window.addEventListener('unhandledrejection', function(e){ showErr('REJECTION: ' + e.reason); });
+
+/* ---------------------------------------------------------------- device */
+var IS_TOUCH = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+if (IS_TOUCH){ document.documentElement.classList.add('touch'); document.body.classList.add('touch'); }
+
+/* ---------------------------------------------------------------- scene  */
+var scene = new THREE.Scene();
+scene.background = new THREE.Color(0x070a0f);
+scene.fog = new THREE.Fog(0x070a0f, 45, 110);
+
+var stage = document.getElementById('stage');
+var camera = new THREE.PerspectiveCamera(60, 1, 0.05, 400);
+camera.rotation.order = 'YXZ';
+
+var renderer = new THREE.WebGLRenderer({ antialias:true, preserveDrawingBuffer:true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+stage.appendChild(renderer.domElement);
+var dom = renderer.domElement;
+window.__threeGL = renderer.getContext();
+
+scene.add(new THREE.HemisphereLight(0xdfe9ff, 0x2b2b26, 0.85));
+var sun = new THREE.DirectionalLight(0xfff2d8, 0.85);
+sun.position.set(9, 14, 11);
+scene.add(sun);
+var fill = new THREE.DirectionalLight(0xa9c6ff, 0.30);
+fill.position.set(-8, 7, -6);
+scene.add(fill);
+
+/* ---------------------------------------------------------------- helper */
+/* bx(width, depth, height, x, ybottom, z, material, parent)
+   width along X, depth along Z, height along Y. Absolute metres. */
+function bx(w, d, h, x, yb, z, mat, parent){
+  var m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+  m.position.set(x, yb + h/2, z);
+  (parent || scene).add(m);
+  return m;
+}
+
+/* ---------------------------------------------------------------- mats   */
+var M = {
+  /* Opaque on purpose. A translucent ground made the buried concrete cylinders
+     read as if the hoarding stood on stilts, which is worse than not showing
+     them at all - the holes are on the drawings and in the calc. */
+  ground  : new THREE.MeshLambertMaterial({ color:0x565a60 }),
+  wall    : new THREE.MeshLambertMaterial({ color:0x2b3a55 }),
+  timber  : new THREE.MeshLambertMaterial({ color:0xc8a165 }),
+  rail    : new THREE.MeshLambertMaterial({ color:0xbe9758 }),
+  osb     : new THREE.MeshLambertMaterial({ color:0xd8b26a }),
+  concrete: new THREE.MeshLambertMaterial({ color:0x9a9a94 }),
+  bin     : new THREE.MeshLambertMaterial({ color:0x1f4d2b }),
+  binLid  : new THREE.MeshLambertMaterial({ color:0x173d22 }),
+  binRed  : new THREE.MeshLambertMaterial({ color:0x9b2226 }),
+  metal   : new THREE.MeshLambertMaterial({ color:0x4a4f57 }),
+  hi      : new THREE.MeshLambertMaterial({ color:0xd7f000 }),
+  skin    : new THREE.MeshLambertMaterial({ color:0xe0b08a }),
+  bench   : new THREE.MeshLambertMaterial({ color:0xa98a5b })
+};
+
+/* ---------------------------------------------------------------- site   */
+/* Tarmac ground 12 x 8, semi-transparent so the concrete cylinders read. */
+(function(){
+  var g = new THREE.Mesh(new THREE.PlaneGeometry(12, 8), M.ground);
+  g.rotation.x = -Math.PI/2;
+  g.position.set(3.0, 0.0, -0.5);
+  g.renderOrder = -1;
+  scene.add(g);
+})();
+
+/* Building wall behind the bin bay. z=-1.20 is its FRONT face. */
+bx(8.00, 0.25, 3.50, 3.00, 0, -1.325, M.wall);
+
+/* Lean-to canopy (context). Sloping plane x -1.00..2.40, */
+/* 2.60 m at the wall (z=-1.20) falling to 2.30 m at z=0.90. */
+(function(){
+  var xA = -1.00, xB = 2.40, zA = -1.20, zB = 0.90, hA = 2.60, hB = 2.30;
+  var geo = new THREE.PlaneGeometry(xB - xA, zB - zA, 1, 1);
+  var pos = geo.attributes.position;
+  var cxX = (xA + xB)/2, cxZ = (zA + zB)/2;
+  for (var i = 0; i < pos.count; i++){
+    var px = pos.getX(i), py = pos.getY(i);
+    var Z = cxZ + py;
+    var t = (Z - zA)/(zB - zA);
+    pos.setXYZ(i, cxX + px, hA + (hB - hA)*t, Z);
+  }
+  pos.needsUpdate = true;
+  geo.computeVertexNormals();
+  scene.add(new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color:0xa98a5b, side:THREE.DoubleSide })));
+})();
+bx(0.10, 0.10, 2.30, -0.90, 0, 0.85, M.timber);
+bx(0.10, 0.10, 2.30,  2.30, 0, 0.85, M.timber);
+
+/* Picnic bench (context): two boxes and a plank. */
+bx(1.60, 0.40, 0.06, 7.60, 0.44, -0.30, M.bench);
+bx(0.12, 0.40, 0.44, 7.00, 0.00, -0.30, M.bench);
+bx(0.12, 0.40, 0.44, 8.20, 0.00, -0.30, M.bench);
+
+/* ---------------------------------------------------------------- bins   */
+/* 4-wheel 1100 L, front face at z=-0.85, body runs back to z=-2.11. */
+[0.60, 2.10, 3.60].forEach(function(cx){
+  bx(1.37, 1.26, 1.40, cx, 0, -1.48, M.bin);
+  bx(1.39, 1.28, 0.06, cx, 1.40, -1.48, M.binLid);
+});
+/* 2-wheel 240 L. */
+[[4.90, true], [5.50, false], [6.00, false]].forEach(function(b){
+  var cx = b[0], red = b[1];
+  bx(0.58, 0.74, 1.07, cx, 0, -1.22, M.bin);
+  bx(0.60, 0.76, 0.05, cx, 1.07, -1.22, red ? M.binRed : M.binLid);
+});
+
+/* ---------------------------------------------------------------- hoarding */
+var POST_H = 2.40;
+var POSTS = [
+  { x:0, z:0.00, o:'front' }, { x:2, z:0.00, o:'front' },
+  { x:4, z:0.00, o:'front' }, { x:6, z:0.00, o:'front' },
+  { x:0, z:-1.20, o:'return' }, { x:6, z:-1.20, o:'return' }
+];
+POSTS.forEach(function(p){
+  if (p.o === 'front') bx(0.075, 0.225, POST_H, p.x, 0, p.z, M.timber); /* 75 face out */
+  else                 bx(0.225, 0.075, POST_H, p.x, 0, p.z, M.timber); /* 75 face out */
+});
+
+/* Rails 100 x 75 laid flat: 100 horizontal (out of the face), 75 deep vertically. */
+var RAIL_H = 0.075, RAIL_D = 0.100;
+var RAIL_C = [0.225, 1.200, 2.300];
+function railX(x1, x2, zOuter, sgn){          /* front run, along X */
+  var len = Math.abs(x2 - x1), zc = zOuter + sgn*(RAIL_D/2);
+  RAIL_C.forEach(function(hc){ bx(len, RAIL_D, RAIL_H, (x1 + x2)/2, hc - RAIL_H/2, zc, M.rail); });
+}
+function railZ(z1, z2, xOuter, sgn){          /* return, along Z */
+  var len = Math.abs(z2 - z1), xc = xOuter + sgn*(RAIL_D/2);
+  RAIL_C.forEach(function(hc){ bx(RAIL_D, len, RAIL_H, xc, hc - RAIL_H/2, (z1 + z2)/2, M.rail); });
+}
+railX(0, 2, 0.1125, +1);
+railX(2, 4, 0.1125, +1);       /* continuous across the gate opening */
+railX(4, 6, 0.1125, +1);
+railZ(0, -1.20, -0.1125, -1);  /* left return  */
+railZ(0, -1.20,  0.1125, +1);  /* right return */
+
+/* ---------------------------------------------------------------- facing */
+var facingGroup = new THREE.Group(); scene.add(facingGroup);
+var OSB_T = 0.018, Z_FRONT = 0.1125 + RAIL_D + OSB_T/2;   /* 0.2215 */
+
+/* Front run 0.00..6.00, leaving the 2.00..3.20 gate opening. */
+[[0.00,1.20],[1.20,2.00],[3.20,4.40],[4.40,5.60],[5.60,6.00]].forEach(function(s){
+  bx(Math.abs(s[1]-s[0]), OSB_T, 2.40, (s[0]+s[1])/2, 0, Z_FRONT, M.osb, facingGroup);
+});
+/* Returns, sheeting x0.00 to z-1.20. */
+function retSheet(xc){ bx(OSB_T, 1.20, 2.40, xc, 0, -0.60, M.osb, facingGroup); }
+retSheet(-0.1125 - OSB_T/2);
+retSheet( 0.1125 + OSB_T/2);
+
+/* ---------------------------------------------------------------- gate   */
+/* 1.20 x 2.10 leaf in the front run between x=2.00 and 3.20.
+   18 mm OSB on a 75 x 50 frame with one diagonal brace; 2 hinges at x=2.00,
+   sliding bolt at x=3.20. It is a doorway - the front run stays continuous. */
+(function(){
+  var g = facingGroup;
+  var x0 = 2.00, x1 = 3.20, gH = 2.10;
+  var zf = 0.1125 + RAIL_D + 0.025;                 /* frame centre, proud of rails */
+  /* stiles (75 wide x 50 deep) */
+  bx(0.075, 0.050, gH, x0 + 0.0375, 0, zf, M.timber, g);
+  bx(0.075, 0.050, gH, x1 - 0.0375, 0, zf, M.timber, g);
+  /* top + bottom rails */
+  bx(x1 - x0 - 0.150, 0.050, 0.075, (x0 + x1)/2, 0.000, zf, M.timber, g);
+  bx(x1 - x0 - 0.150, 0.050, 0.075, (x0 + x1)/2, gH - 0.075, zf, M.timber, g);
+  /* one diagonal brace, bottom-left to top-right */
+  (function(){
+    var ax = x0 + 0.075, ay = 0.075, bx2 = x1 - 0.075, by = gH - 0.075;
+    var dx = bx2 - ax, dy = by - ay, len = Math.sqrt(dx*dx + dy*dy);
+    var m = new THREE.Mesh(new THREE.BoxGeometry(len, 0.075, 0.050), M.timber);
+    m.position.set((ax + bx2)/2, (ay + by)/2, zf);
+    m.rotation.z = Math.atan2(dy, dx);
+    g.add(m);
+  })();
+  /* OSB leaf on the outer face of the frame */
+  var zLeaf = zf + 0.025 + OSB_T/2;
+  bx(x1 - x0 - 0.02, OSB_T, gH, (x0 + x1)/2, 0, zLeaf, M.osb, g);
+  /* two hinges on the x=2.00 side */
+  bx(0.09, 0.06, 0.10, x0 + 0.02, 0.32, zf, M.metal, g);
+  bx(0.09, 0.06, 0.10, x0 + 0.02, 1.72, zf, M.metal, g);
+  /* sliding bolt latch on the x=3.20 side */
+  bx(0.18, 0.035, 0.035, x1 - 0.06, 1.16, zf + 0.03, M.metal, g);
+})();
+
+/* ---------------------------------------------------------------- foundations */
+POSTS.forEach(function(p){
+  var cyl = new THREE.Mesh(new THREE.CylinderGeometry(0.20, 0.20, 0.92, 24), M.concrete);
+  cyl.position.set(p.x, -0.44, p.z);   /* y -0.90 .. +0.02 */
+  scene.add(cyl);
+});
+
+/* ---------------------------------------------------------------- figure */
+var figureGroup = new THREE.Group(); scene.add(figureGroup);
+(function(){
+  var fx = 3.00, fz = 1.60;
+  bx(0.14, 0.16, 0.92, fx - 0.115, 0, fz, M.metal, figureGroup);   /* legs */
+  bx(0.14, 0.16, 0.92, fx + 0.115, 0, fz, M.metal, figureGroup);
+  bx(0.42, 0.24, 0.65, fx, 0.92, fz, M.hi, figureGroup);           /* hi-vis torso */
+  bx(0.10, 0.12, 0.55, fx - 0.26, 0.97, fz, M.hi, figureGroup);    /* arms */
+  bx(0.10, 0.12, 0.55, fx + 0.26, 0.97, fz, M.hi, figureGroup);
+  var head = new THREE.Mesh(new THREE.SphereGeometry(0.115, 16, 12), M.skin);
+  head.position.set(fx, 1.685, fz);                                 /* top = 1.80 */
+  figureGroup.add(head);
+})();
+
+/* ---------------------------------------------------------------- labels */
+var labelsGroup = new THREE.Group(); scene.add(labelsGroup);
+var LABEL_H = IS_TOUCH ? 0.22 : 0.34;
+function makeLabel(text){
+  var cv = document.createElement('canvas'), pad = 18, fs = 64;
+  var ctx = cv.getContext('2d');
+  ctx.font = 'bold ' + fs + 'px sans-serif';
+  var w = ctx.measureText(text).width;
+  cv.width = Math.ceil(w + pad*2); cv.height = fs + pad*2;
+  ctx = cv.getContext('2d');
+  ctx.font = 'bold ' + fs + 'px sans-serif';
+  ctx.fillStyle = 'rgba(10,12,16,0.86)';
+  ctx.fillRect(0, 0, cv.width, cv.height);
+  ctx.strokeStyle = '#ffd23f'; ctx.lineWidth = 5;
+  ctx.strokeRect(2.5, 2.5, cv.width - 5, cv.height - 5);
+  ctx.fillStyle = '#ffd23f'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(text, cv.width/2, cv.height/2);
+  var tex = new THREE.CanvasTexture(cv);
+  var sp = new THREE.Sprite(new THREE.SpriteMaterial({ map:tex, depthTest:false, depthWrite:false, transparent:true }));
+  sp.scale.set(LABEL_H * cv.width / cv.height, LABEL_H, 1);
+  sp.renderOrder = 999;
+  return sp;
+}
+[ ['6.00 m', 3.00, 0.26, 1.95],   /* overall front run, on the ground in the yard */
+  ['2.40 m', 6.22, 1.28, 0.45],   /* hoarding height, at the right-hand end       */
+  ['2.00 m', 1.00, 0.26, 1.25] ].forEach(function(L){  /* post centres */
+  var s = makeLabel(L[0]); s.position.set(L[1], L[2], L[3]); labelsGroup.add(s);
+});
+
+/* ---------------------------------------------------------------- camera state
+   walk and orbit are INDEPENDENT variable sets. setMode() never derives one
+   from the other - that was the bug that made the model look empty. */
+var mode = IS_TOUCH ? 'orbit' : 'walk';
+var orbit = { theta:-0.50, phi:1.12, radius:10.0, target:new THREE.Vector3(3.00, 1.15, -0.40) };
+var walk  = { yaw:0.0, pitch:-0.03, pos:new THREE.Vector3(3.00, 1.70, 6.50) };
+
+function updateCamera(){
+  if (mode === 'orbit'){
+    var off = new THREE.Vector3().setFromSpherical(new THREE.Spherical(orbit.radius, orbit.phi, orbit.theta));
+    camera.position.copy(orbit.target).add(off);
+    camera.lookAt(orbit.target);
+  } else {
+    camera.position.copy(walk.pos);
+    camera.rotation.set(walk.pitch, walk.yaw, 0, 'YXZ');
+  }
+}
+
+/* ---------------------------------------------------------------- UI */
+var modeBtn   = document.getElementById('modeBtn');
+var frameBtn  = document.getElementById('frameBtn');
+var labelsBtn = document.getElementById('labelsBtn');
+var figureBtn = document.getElementById('figureBtn');
+var resetBtn  = document.getElementById('resetBtn');
+var stickEl   = document.getElementById('stick');
+var knobEl    = document.getElementById('knob');
+var hintEl    = document.getElementById('hint');
+
+var frameOnly  = false;
+var showLabels = !IS_TOUCH;   /* OFF by default on touch */
+var showFigure = true;
+
+function syncUI(){
+  modeBtn.textContent = (mode === 'orbit') ? 'Mode: Orbit' : 'Mode: Walk';
+  modeBtn.classList.toggle('on', mode === 'walk');
+  frameBtn.classList.toggle('on', frameOnly);
+  labelsBtn.classList.toggle('on', showLabels);
+  figureBtn.classList.toggle('on', showFigure);
+  facingGroup.visible = !frameOnly;
+  labelsGroup.visible = showLabels;
+  figureGroup.visible = showFigure;
+  stickEl.style.display = (IS_TOUCH && mode === 'walk') ? 'block' : 'none';
+  hintEl.textContent = IS_TOUCH
+    ? (mode === 'walk' ? 'Thumbstick: move - drag screen: look - pinch: zoom'
+                       : 'Drag: rotate - two-finger pinch: zoom')
+    : (mode === 'walk' ? 'WASD move - Shift run - PgUp/PgDn eye height - drag or pointer-lock to look'
+                       : 'Drag rotate - wheel zoom - right-drag pan');
+}
+
+function setMode(m){
+  mode = (m === 'walk') ? 'walk' : 'orbit';   /* no angle derivation */
+  syncUI();
+  updateCamera();
+}
+function resetView(){
+  orbit.theta = -0.50; orbit.phi = 1.12; orbit.radius = 10.0;
+  orbit.target.set(3.00, 1.15, -0.40);
+  walk.yaw = 0.0; walk.pitch = -0.03; walk.pos.set(3.00, 1.70, 6.50);
+  updateCamera();
+}
+modeBtn.addEventListener('click', function(){ setMode(mode === 'walk' ? 'orbit' : 'walk'); });
+frameBtn.addEventListener('click', function(){ frameOnly = !frameOnly; syncUI(); });
+labelsBtn.addEventListener('click', function(){ showLabels = !showLabels; syncUI(); });
+figureBtn.addEventListener('click', function(){ showFigure = !showFigure; syncUI(); });
+resetBtn.addEventListener('click', function(){ resetView(); });
+
+/* ---------------------------------------------------------------- walk input */
+var stick = { x:0, y:0, active:false };
+var keys = { w:false, a:false, s:false, d:false, shift:false };
+
+window.addEventListener('keydown', function(e){
+  var k = e.key.toLowerCase();
+  if (k === 'w') keys.w = true; if (k === 'a') keys.a = true;
+  if (k === 's') keys.s = true; if (k === 'd') keys.d = true;
+  if (e.key === 'Shift') keys.shift = true;
+  if (e.code === 'PageUp')   { walk.pos.y = Math.min(6.0, walk.pos.y + 0.15); }
+  if (e.code === 'PageDown') { walk.pos.y = Math.max(0.6, walk.pos.y - 0.15); }
+});
+window.addEventListener('keyup', function(e){
+  var k = e.key.toLowerCase();
+  if (k === 'w') keys.w = false; if (k === 'a') keys.a = false;
+  if (k === 's') keys.s = false; if (k === 'd') keys.d = false;
+  if (e.key === 'Shift') keys.shift = false;
+});
+
+/* ---------------------------------------------------------------- pointer */
+var dragging = false, dragBtn = 0, lastX = 0, lastY = 0;
+
+dom.addEventListener('contextmenu', function(e){ e.preventDefault(); });
+
+dom.addEventListener('mousedown', function(e){
+  if (IS_TOUCH) return;
+  if (mode === 'walk' && !document.pointerLockElement){
+    if (dom.requestPointerLock){ try { dom.requestPointerLock(); } catch(_){} }
+  }
+  dragging = true; dragBtn = e.button; lastX = e.clientX; lastY = e.clientY;
+  e.preventDefault();
+});
+window.addEventListener('mouseup', function(){ dragging = false; });
+window.addEventListener('mousemove', function(e){
+  if (IS_TOUCH) return;
+  var dx, dy;
+  if (document.pointerLockElement === dom){
+    dx = e.movementX; dy = e.movementY;
+  } else if (dragging){
+    dx = e.clientX - lastX; dy = e.clientY - lastY;
+    lastX = e.clientX; lastY = e.clientY;
+  } else { return; }
+  if (mode === 'orbit'){
+    if (dragging && dragBtn === 2){       /* right-drag pan */
+      var right = new THREE.Vector3(), up = new THREE.Vector3();
+      camera.matrixWorld.extractBasis(right, up, new THREE.Vector3());
+      orbit.target.addScaledVector(right, -dx * orbit.radius * 0.0018);
+      orbit.target.addScaledVector(up, dy * orbit.radius * 0.0018);
+    } else {
+      orbit.theta -= dx * 0.006;
+      orbit.phi   -= dy * 0.006;
+      orbit.phi = Math.max(0.10, Math.min(1.53, orbit.phi));
+    }
+  } else {
+    walk.yaw   -= dx * 0.0026;
+    walk.pitch -= dy * 0.0026;
+    walk.pitch = Math.max(-1.45, Math.min(1.45, walk.pitch));
+  }
+});
+dom.addEventListener('wheel', function(e){
+  e.preventDefault();
+  if (mode === 'orbit'){
+    orbit.radius *= (1 + Math.sign(e.deltaY) * 0.09);
+    orbit.radius = Math.max(2.5, Math.min(30, orbit.radius));
+  }
+}, { passive:false });
+
+/* ---------------------------------------------------------------- touch input */
+var pinchDist = 0, lookX = 0, lookY = 0, lookActive = false;
+
+function touchDist(t){
+  var dx = t[0].clientX - t[1].clientX, dy = t[0].clientY - t[1].clientY;
+  return Math.sqrt(dx*dx + dy*dy);
+}
+dom.addEventListener('touchstart', function(e){
+  if (e.touches.length === 1){
+    lookActive = true; lookX = e.touches[0].clientX; lookY = e.touches[0].clientY; pinchDist = 0;
+  } else if (e.touches.length >= 2){
+    lookActive = false; pinchDist = touchDist(e.touches);
+  }
+  e.preventDefault();
+}, { passive:false });
+
+dom.addEventListener('touchmove', function(e){
+  if (e.touches.length >= 2 && pinchDist > 0){
+    var d = touchDist(e.touches);
+    if (d > 0){
+      var k = pinchDist / d;
+      if (mode === 'orbit'){
+        orbit.radius *= k; orbit.radius = Math.max(2.5, Math.min(30, orbit.radius));
+      } else {
+        walk.pos.y = Math.max(0.6, Math.min(6.0, walk.pos.y / k));
+      }
+      pinchDist = d;
+    }
+  } else if (lookActive && e.touches.length === 1){
+    var dx = e.touches[0].clientX - lookX, dy = e.touches[0].clientY - lookY;
+    lookX = e.touches[0].clientX; lookY = e.touches[0].clientY;
+    if (mode === 'orbit'){
+      orbit.theta -= dx * 0.008;
+      orbit.phi   -= dy * 0.008;
+      orbit.phi = Math.max(0.10, Math.min(1.53, orbit.phi));
+    } else {
+      walk.yaw   -= dx * 0.0050;
+      walk.pitch -= dy * 0.0050;
+      walk.pitch = Math.max(-1.45, Math.min(1.45, walk.pitch));
+    }
+  }
+  e.preventDefault();
+}, { passive:false });
+
+dom.addEventListener('touchend', function(e){
+  if (e.touches.length === 0){ lookActive = false; pinchDist = 0; }
+  else if (e.touches.length === 1){ lookActive = true; lookX = e.touches[0].clientX; lookY = e.touches[0].clientY; }
+  e.preventDefault();
+}, { passive:false });
+dom.addEventListener('touchcancel', function(){ lookActive = false; pinchDist = 0; }, { passive:false });
+
+/* ---------------------------------------------------------------- thumbstick */
+function stickFromTouch(t){
+  var r = stickEl.getBoundingClientRect();
+  var cx = r.left + r.width/2, cy = r.top + r.height/2;
+  var dx = t.clientX - cx, dy = t.clientY - cy;
+  var R = r.width/2 - 8, len = Math.sqrt(dx*dx + dy*dy);
+  if (len > R){ dx = dx/len*R; dy = dy/len*R; len = R; }
+  knobEl.style.transform = 'translate(' + dx.toFixed(1) + 'px,' + dy.toFixed(1) + 'px)';
+  stick.x = dx / R;        /* +x = strafe right */
+  stick.y = -dy / R;       /* +y = forward */
+  stick.active = true;
+}
+function stickEnd(e){
+  if (e){ e.preventDefault(); e.stopPropagation(); }
+  stick.x = 0; stick.y = 0; stick.active = false;
+  knobEl.style.transform = 'translate(0,0)';
+}
+stickEl.addEventListener('touchstart', function(e){
+  e.preventDefault(); e.stopPropagation(); stickFromTouch(e.touches[0]);
+}, { passive:false });
+stickEl.addEventListener('touchmove', function(e){
+  e.preventDefault(); e.stopPropagation(); if (e.touches[0]) stickFromTouch(e.touches[0]);
+}, { passive:false });
+stickEl.addEventListener('touchend', stickEnd, { passive:false });
+stickEl.addEventListener('touchcancel', stickEnd, { passive:false });
+
+/* ---------------------------------------------------------------- loop */
+var last = (typeof performance !== 'undefined') ? performance.now() : Date.now();
+
+function step(dt){
+  if (mode !== 'walk') return;
+  var sy = Math.sin(walk.yaw), cy = Math.cos(walk.yaw);
+  var fx = -sy, fz = -cy;    /* forward */
+  var rx =  cy, rz = -sy;    /* right   */
+  var mx = 0, mz = 0;
+  if (keys.w){ mx += fx; mz += fz; }
+  if (keys.s){ mx -= fx; mz -= fz; }
+  if (keys.d){ mx += rx; mz += rz; }
+  if (keys.a){ mx -= rx; mz -= rz; }
+  if (stick.active){
+    mx += fx * stick.y + rx * stick.x;
+    mz += fz * stick.y + rz * stick.x;
+  }
+  var len = Math.sqrt(mx*mx + mz*mz);
+  if (len > 1e-4){
+    if (len > 1) { mx /= len; mz /= len; }
+    var speed = keys.shift ? 6.0 : 2.6;
+    walk.pos.x += mx * speed * dt;
+    walk.pos.z += mz * speed * dt;
+  }
+}
+
+function frame(t){
+  var dt = Math.min((t - last)/1000, 0.05); last = t;
+  step(dt);
+  updateCamera();
+  renderer.render(scene, camera);
+  if (!window.__ready) window.__ready = true;
+  requestAnimationFrame(frame);
+}
+
+/* ---------------------------------------------------------------- resize */
+function resize(){
+  var w = stage.clientWidth || 1, h = stage.clientHeight || 1;
+  renderer.setSize(w, h);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', function(){ setTimeout(resize, 120); });
+
+/* ---------------------------------------------------------------- dbg */
+window.__dbg = {
+  get mode(){ return mode; },
+  get cameraPosition(){ return camera.position.toArray(); },
+  get stick(){ return [stick.x, stick.y]; },
+  get orbit(){ return { theta:orbit.theta, phi:orbit.phi, radius:orbit.radius }; },
+  get walk(){ return { yaw:walk.yaw, pitch:walk.pitch, pos:walk.pos.toArray() }; },
+  get touch(){ return IS_TOUCH; },
+  get facingVisible(){ return facingGroup.visible; },
+  get stickVisible(){ return stickEl.style.display !== 'none'; }
+};
+window.__api = {
+  setMode: setMode,
+  setFrameOnly: function(v){ frameOnly = !!v; syncUI(); },
+  setLabels: function(v){ showLabels = !!v; syncUI(); },
+  setFigure: function(v){ showFigure = !!v; syncUI(); },
+  reset: resetView
+};
+
+/* ---------------------------------------------------------------- boot */
+resize();
+syncUI();
+updateCamera();
+window.__ready = false;
+requestAnimationFrame(frame);
+
+})();
+</script>
+</body>
+</html>
